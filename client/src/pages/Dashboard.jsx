@@ -1,184 +1,1136 @@
+
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Users, UserCheck, UserX, CalendarClock, CalendarOff, FileCheck2, FileWarning,
-  Clock, FileText, CalendarDays,
+  Users,
+  UserCheck,
+  UserX,
+  CalendarClock,
+  CalendarOff,
+  FileCheck2,
+  FileWarning,
+  Clock,
+  FileText,
+  CalendarDays,
+  AlertTriangle,
+  ClipboardCheck,
+  ArrowRight,
+  RefreshCw,
+  BriefcaseBusiness,
+  TrendingUp,
+  ShieldCheck,
+  Building2,
+  CheckCircle2,
+  CircleAlert,
+  CalendarRange,
+  ClipboardList,
 } from "lucide-react";
+
 import api, { errMsg } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import StatusBadge from "../components/StatusBadge";
 
 const tones = {
-  indigo: "bg-indigo-50 text-indigo-600",
-  green: "bg-emerald-50 text-emerald-600",
-  red: "bg-red-50 text-red-600",
-  amber: "bg-amber-50 text-amber-600",
-  sky: "bg-sky-50 text-sky-600",
+  indigo: {
+    icon: "bg-indigo-50 text-indigo-600",
+    accent: "border-l-indigo-500",
+  },
+  green: {
+    icon: "bg-emerald-50 text-emerald-600",
+    accent: "border-l-emerald-500",
+  },
+  red: {
+    icon: "bg-rose-50 text-rose-600",
+    accent: "border-l-rose-500",
+  },
+  amber: {
+    icon: "bg-amber-50 text-amber-600",
+    accent: "border-l-amber-500",
+  },
+  sky: {
+    icon: "bg-sky-50 text-sky-600",
+    accent: "border-l-sky-500",
+  },
+  violet: {
+    icon: "bg-violet-50 text-violet-600",
+    accent: "border-l-violet-500",
+  },
 };
 
-const fmtDate = x =>
-  new Date(x).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+const fmtDate = value => {
+  if (!value) return "-";
 
-const Stat = ({ label, value, icon: Icon, tone = "indigo" }) => (
-  <div className="card flex items-center gap-4 p-5">
-    <span className={`grid h-12 w-12 place-items-center rounded-xl ${tones[tone]}`}><Icon size={22} /></span>
-    <div>
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
-    </div>
-  </div>
-);
+  const dateString = String(value).slice(0, 10);
+  const date = new Date(`${dateString}T00:00:00`);
 
-const Skeleton = ({ count = 6 }) => (
-  <div className="space-y-6">
-    <div className="h-8 w-48 animate-pulse rounded bg-slate-200" />
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: count }).map((_, i) => <div key={i} className="card h-24 animate-pulse bg-slate-100" />)}
-    </div>
-  </div>
-);
+  if (Number.isNaN(date.getTime())) return String(value);
 
-const ListCard = ({ title, empty, items, render }) => (
-  <div className="card p-5">
-    <h2 className="mb-3 font-semibold">{title}</h2>
-    {items.length === 0 ? (
-      <p className="py-4 text-center text-sm text-slate-400">{empty}</p>
-    ) : (
-      <ul className="divide-y divide-slate-100">
-        {items.map(item => (
-          <li key={item._id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-            {render(item)}
-          </li>
-        ))}
-      </ul>
-    )}
-  </div>
-);
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 
-export default function Dashboard() {
-  const { user } = useAuth();
-  const [d, setD] = useState(null);
-  const [error, setError] = useState("");
+const fmtTime = value => {
+  if (!value) return "-";
 
-  useEffect(() => {
-    let ignore = false;
-    api.get("/dashboard")
-      .then(r => { if (!ignore) setD(r.data); })
-      .catch(e => { if (!ignore) setError(errMsg(e)); });
-    return () => { ignore = true; };
-  }, []);
+  const date = new Date(value);
 
-  if (error) return <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</p>;
-  if (!d) return <Skeleton count={user.role === "admin" ? 7 : 3} />;
+  if (Number.isNaN(date.getTime())) return "-";
 
-  // ---------- HR / Admin ----------
-  if (user.role === "admin") return (
-    <div className="space-y-6">
-      <h1 className="page-title">HR Dashboard</h1>
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  });
+};
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Stat label="Active employees" value={d.activeEmployees} icon={Users} tone="indigo" />
-        <Stat label="Present today" value={d.presentToday} icon={UserCheck} tone="green" />
-        <Stat label="Absent today" value={d.absentToday} icon={UserX} tone="red" />
-        <Stat label="On leave today" value={d.onLeaveToday} icon={CalendarOff} tone="sky" />
-        <Stat label="Pending leave requests" value={d.pendingLeaves} icon={CalendarClock} tone="amber" />
-        <Stat label="DARs submitted today" value={d.darsToday} icon={FileCheck2} tone="green" />
-        <Stat label="DARs missing" value={d.darsMissing} icon={FileWarning} tone="red" />
+const getFirstName = name =>
+  String(name || "User").trim().split(/\s+/)[0];
+
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  tone = "indigo",
+  description,
+}) {
+  const style = tones[tone] || tones.indigo;
+
+  return (
+    <div
+      className={`group rounded-2xl border border-slate-200 border-l-4 ${style.accent} bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-500">
+            {label}
+          </p>
+
+          <p className="mt-3 break-words text-3xl font-bold tracking-tight text-slate-900">
+            {value ?? 0}
+          </p>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${style.icon}`}
+        >
+          <Icon size={23} />
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ListCard
-          title="Recent leave requests" empty="No leave requests yet"
-          items={d.recentLeaves || []}
-          render={l => (
-            <>
-              <span>
-                <span className="font-medium">{l.employee?.user?.name}</span>
-                <span className="text-slate-500"> · {l.leaveType}</span>
-              </span>
-              <StatusBadge value={l.status} />
-            </>
-          )}
-        />
-        <ListCard
-          title="Recent daily reports" empty="No reports yet"
-          items={d.recentReports || []}
-          render={r => (
-            <>
-              <span className="font-medium">{r.employee?.user?.name}</span>
-              <span className="text-slate-500">{r.reportDate}</span>
-            </>
-          )}
-        />
+      {description && (
+        <p className="mt-4 text-xs leading-5 text-slate-400">
+          {description}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Skeleton({ count = 6 }) {
+  return (
+    <div className="space-y-6">
+      <div className="animate-pulse space-y-2">
+        <div className="h-8 w-56 rounded-lg bg-slate-200" />
+        <div className="h-4 w-80 max-w-full rounded bg-slate-100" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: count }).map((_, index) => (
+          <div
+            key={index}
+            className="h-36 animate-pulse rounded-2xl border border-slate-100 bg-white p-5"
+          >
+            <div className="h-4 w-28 rounded bg-slate-100" />
+            <div className="mt-5 h-8 w-16 rounded bg-slate-200" />
+            <div className="mt-5 h-3 w-36 rounded bg-slate-100" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
       </div>
     </div>
   );
+}
 
-  // ---------- Employee ----------
+function SectionHeader({ title, subtitle, action }) {
+  return (
+    <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900">
+          {title}
+        </h2>
+
+        {subtitle && (
+          <p className="mt-1 text-sm text-slate-500">
+            {subtitle}
+          </p>
+        )}
+      </div>
+
+      {action}
+    </div>
+  );
+}
+
+function ListCard({
+  title,
+  subtitle,
+  empty,
+  items = [],
+  render,
+  link,
+  linkLabel = "View all",
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="min-w-0">
+          <h2 className="font-bold text-slate-900">
+            {title}
+          </h2>
+
+          {subtitle && (
+            <p className="mt-1 text-xs text-slate-500">
+              {subtitle}
+            </p>
+          )}
+        </div>
+
+        {link && (
+          <Link
+            to={link}
+            className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-indigo-600 transition hover:text-indigo-800"
+          >
+            {linkLabel}
+            <ArrowRight size={14} />
+          </Link>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center px-5 py-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+            <ClipboardList size={22} />
+          </div>
+
+          <p className="mt-3 text-sm font-semibold text-slate-600">
+            Nothing to display
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            {empty}
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100 px-5">
+          {items.map((item, index) => (
+            <li
+              key={item._id || index}
+              className="flex items-center justify-between gap-3 py-4"
+            >
+              {render(item)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function QuickAction({
+  to,
+  icon: Icon,
+  title,
+  description,
+  tone = "indigo",
+}) {
+  const style = tones[tone] || tones.indigo;
+
+  return (
+    <Link
+      to={to}
+      className="group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 transition duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
+    >
+      <div
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${style.icon}`}
+      >
+        <Icon size={21} />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-slate-800 transition group-hover:text-indigo-700">
+          {title}
+        </p>
+
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          {description}
+        </p>
+      </div>
+
+      <ArrowRight
+        size={17}
+        className="shrink-0 text-slate-300 transition group-hover:translate-x-1 group-hover:text-indigo-600"
+      />
+    </Link>
+  );
+}
+
+function EmployeeAvatar({ name }) {
+  const initials = String(name || "E")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(part => part[0])
+    .join("")
+    .toUpperCase();
+
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-bold text-indigo-700">
+      {initials}
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }) {
+  return (
+    <div className="flex min-h-[350px] flex-col items-center justify-center rounded-2xl border border-rose-200 bg-white px-5 py-12 text-center shadow-sm">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+        <CircleAlert size={28} />
+      </div>
+
+      <h2 className="mt-4 text-lg font-bold text-slate-900">
+        Unable to load dashboard
+      </h2>
+
+      <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+        {message ||
+          "Something went wrong while fetching dashboard information."}
+      </p>
+
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+      >
+        <RefreshCw size={16} />
+        Try again
+      </button>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const { user } = useAuth();
+
+  const [d, setD] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const role = user?.role;
+
+  const admin = role === "admin";
+  const manager = role === "manager";
+  const employee = role === "employee";
+
+  useEffect(() => {
+    let ignore = false;
+
+    const fetchDashboard = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await api.get("/dashboard");
+
+        if (!ignore) {
+          setD(response.data);
+        }
+      } catch (error) {
+        if (!ignore) {
+          setError(errMsg(error));
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchDashboard();
+
+    return () => {
+      ignore = true;
+    };
+  }, [reloadKey]);
+
+  const refreshDashboard = () => {
+    setReloadKey(key => key + 1);
+  };
+
+  if (loading && !d) {
+    return (
+      <div className="space-y-6">
+        <Skeleton count={admin ? 7 : manager ? 9 : 3} />
+      </div>
+    );
+  }
+
+  if (error && !d) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refreshDashboard}
+      />
+    );
+  }
+
+  if (!d) return null;
+
+  // =====================================================
+  // HR / ADMIN DASHBOARD
+  // =====================================================
+
+  if (admin) {
+    return (
+      <div className="space-y-7 pb-8">
+
+        {/* HEADER */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
+          <div className="relative z-10 flex flex-col justify-between gap-6 md:flex-row md:items-center">
+            <div className="max-w-2xl">
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-indigo-100">
+                <ShieldCheck size={14} />
+                HR Administration
+              </div>
+
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                HR Dashboard
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-indigo-100/80 sm:text-base">
+                Welcome back, {getFirstName(user?.name)}. Here's your
+                organisation's workforce overview and today's activity.
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-indigo-100/80">
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarDays size={14} />
+                  {new Date().toLocaleDateString("en-IN", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "long",
+                    year: "numeric",
+                    timeZone: "Asia/Kolkata",
+                  })}
+                </span>
+
+                <span className="h-1 w-1 rounded-full bg-indigo-200/70" />
+
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 size={14} />
+                  Organisation Overview
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={refreshDashboard}
+              disabled={loading}
+              className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50 md:self-center"
+            >
+              <RefreshCw
+                size={16}
+                className={loading ? "animate-spin" : ""}
+              />
+              Refresh dashboard
+            </button>
+          </div>
+
+          <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border-[35px] border-white/5" />
+          <div className="pointer-events-none absolute -bottom-32 right-40 h-64 w-64 rounded-full bg-indigo-400/10 blur-3xl" />
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Dashboard refresh failed: {error}
+          </div>
+        )}
+
+        <SectionHeader
+          title="Workforce Overview"
+          subtitle="A snapshot of your organisation's attendance and daily operations."
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Stat
+            label="Active Employees"
+            value={d.activeEmployees}
+            icon={Users}
+            tone="indigo"
+            description="Currently active employees"
+          />
+
+          <Stat
+            label="Present Today"
+            value={d.presentToday}
+            icon={UserCheck}
+            tone="green"
+            description="Employees marked present"
+          />
+
+          <Stat
+            label="Absent Today"
+            value={d.absentToday}
+            icon={UserX}
+            tone="red"
+            description="Employees marked absent"
+          />
+
+          <Stat
+            label="On Leave Today"
+            value={d.onLeaveToday}
+            icon={CalendarOff}
+            tone="sky"
+            description="Approved leave for today"
+          />
+
+          <Stat
+            label="Pending Leave Requests"
+            value={d.pendingLeaves}
+            icon={CalendarClock}
+            tone="amber"
+            description="Requests awaiting HR review"
+          />
+
+          <Stat
+            label="DARs Submitted Today"
+            value={d.darsToday}
+            icon={FileCheck2}
+            tone="green"
+            description="Daily activity reports received"
+          />
+
+          <Stat
+            label="DARs Missing"
+            value={d.darsMissing}
+            icon={FileWarning}
+            tone="red"
+            description="Reports not submitted today"
+          />
+        </div>
+
+        {/* QUICK ACTIONS */}
+        <section>
+          <SectionHeader
+            title="Quick Actions"
+            subtitle="Access important HR management sections."
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <QuickAction
+              to="/employees"
+              icon={Users}
+              title="Employee Management"
+              description="View and manage employee profiles."
+              tone="indigo"
+            />
+
+            <QuickAction
+              to="/attendance"
+              icon={CalendarDays}
+              title="Attendance Management"
+              description="Review employee attendance records."
+              tone="green"
+            />
+
+            <QuickAction
+              to="/leaves"
+              icon={CalendarRange}
+              title="Leave Management"
+              description="Review and process leave applications."
+              tone="sky"
+            />
+
+            <QuickAction
+              to="/reports"
+              icon={ClipboardCheck}
+              title="Daily Activity Reports"
+              description="Review employee daily work reports."
+              tone="violet"
+            />
+          </div>
+        </section>
+
+        {/* RECENT ACTIVITIES */}
+        <section>
+          <SectionHeader
+            title="Recent Activities"
+            subtitle="Stay updated with the latest employee submissions."
+          />
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <ListCard
+              title="Recent Leave Requests"
+              subtitle="Latest employee leave applications"
+              empty="No recent leave requests are available."
+              items={d.recentLeaves || []}
+              link="/leaves"
+              render={leave => (
+                <>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <EmployeeAvatar
+                      name={leave.employee?.user?.name || "Employee"}
+                    />
+
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-800">
+                        {leave.employee?.user?.name || "Employee"}
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        {leave.leaveType || "Leave"} ·{" "}
+                        {fmtDate(leave.startDate)}
+                        {leave.endDate &&
+                          ` – ${fmtDate(leave.endDate)}`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <StatusBadge value={leave.status} />
+                </>
+              )}
+            />
+
+            <ListCard
+              title="Recent Daily Reports"
+              subtitle="Latest daily activity report submissions"
+              empty="No recent daily reports are available."
+              items={d.recentReports || []}
+              link="/reports"
+              render={report => (
+                <>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <EmployeeAvatar
+                      name={report.employee?.user?.name || "Employee"}
+                    />
+
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-800">
+                        {report.employee?.user?.name || "Employee"}
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        Report date: {fmtDate(report.reportDate)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0">
+                    <StatusBadge
+                      value={report.overallStatus || "Submitted"}
+                    />
+                  </div>
+                </>
+              )}
+            />
+          </div>
+        </section>
+
+        <div className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+          <div className="mt-0.5 text-indigo-600">
+            <TrendingUp size={19} />
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-indigo-900">
+              Organisation overview
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-indigo-700">
+              Use the dashboard to monitor workforce attendance, leave
+              requests and daily activity report submissions. Detailed
+              information is available in the respective management sections.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =====================================================
+  // MANAGER DASHBOARD
+  // =====================================================
+
+  if (manager) {
+    return (
+      <div className="space-y-7 pb-8">
+
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
+          <div className="relative z-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-indigo-100">
+                <BriefcaseBusiness size={14} />
+                Team Management
+              </div>
+
+              <h1 className="text-2xl font-bold sm:text-3xl">
+                Manager Dashboard
+              </h1>
+
+              <p className="mt-2 text-sm leading-6 text-indigo-100/80">
+                Welcome back, {getFirstName(user?.name)}. Here's your team's
+                performance and daily activity overview.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={refreshDashboard}
+              disabled={loading}
+              className="inline-flex items-center gap-2 self-start rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+            >
+              <RefreshCw
+                size={16}
+                className={loading ? "animate-spin" : ""}
+              />
+              Refresh
+            </button>
+          </div>
+
+          <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border-[35px] border-white/5" />
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Dashboard refresh failed: {error}
+          </div>
+        )}
+
+        <SectionHeader
+          title="Team Overview"
+          subtitle="Monitor your reporting hierarchy and daily team performance."
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Stat
+            label="Team Members"
+            value={d.teamSize}
+            icon={Users}
+            tone="indigo"
+            description="Employees in your reporting hierarchy"
+          />
+
+          <Stat
+            label="Present Today"
+            value={d.presentToday}
+            icon={UserCheck}
+            tone="green"
+            description="Team members marked present"
+          />
+
+          <Stat
+            label="Absent Today"
+            value={d.absentToday}
+            icon={UserX}
+            tone="red"
+            description="Team members marked absent"
+          />
+
+          <Stat
+            label="On Leave Today"
+            value={d.onLeaveToday}
+            icon={CalendarOff}
+            tone="sky"
+            description="Team members on approved leave"
+          />
+
+          <Stat
+            label="DARs Submitted"
+            value={d.darsSubmittedToday}
+            icon={FileCheck2}
+            tone="green"
+            description="Reports received today"
+          />
+
+          <Stat
+            label="DARs Missing"
+            value={d.darsMissingToday}
+            icon={FileWarning}
+            tone="red"
+            description="Reports not submitted today"
+          />
+
+          <Stat
+            label="Pending Reviews"
+            value={d.pendingReviews}
+            icon={ClipboardCheck}
+            tone="amber"
+            description="Reports waiting for your review"
+          />
+
+          <Stat
+            label="Overdue Reviews"
+            value={d.overdueReviews}
+            icon={Clock}
+            tone="red"
+            description="Reviews past their expected time"
+          />
+
+          <Stat
+            label="Open Blockers"
+            value={d.openBlockers}
+            icon={AlertTriangle}
+            tone="amber"
+            description="Unresolved team blockers"
+          />
+        </div>
+
+        <section>
+          <SectionHeader
+            title="Quick Actions"
+            subtitle="Manage your team's daily activities."
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <QuickAction
+              to="/reports"
+              icon={ClipboardCheck}
+              title="Review Daily Reports"
+              description="Review submitted DARs from your reporting hierarchy."
+              tone="indigo"
+            />
+
+            <QuickAction
+              to="/attendance"
+              icon={CalendarDays}
+              title="Team Attendance"
+              description="Monitor attendance and working hours."
+              tone="green"
+            />
+
+            <QuickAction
+              to="/leaves"
+              icon={CalendarRange}
+              title="Team Leave Requests"
+              description="View leave requests from your team."
+              tone="sky"
+            />
+          </div>
+        </section>
+
+        <div className="grid gap-5 xl:grid-cols-2">
+          <ListCard
+            title="Recent Team Reports"
+            subtitle="Latest daily report submissions"
+            empty="No team reports have been submitted yet."
+            items={d.recentReports || []}
+            link="/reports"
+            render={report => (
+              <>
+                <div className="flex min-w-0 items-center gap-3">
+                  <EmployeeAvatar
+                    name={report.employee?.user?.name || "Employee"}
+                  />
+
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {report.employee?.user?.name || "Employee"}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {fmtDate(report.reportDate)}
+                    </p>
+                  </div>
+                </div>
+
+                <StatusBadge
+                  value={report.overallStatus || "Submitted"}
+                />
+              </>
+            )}
+          />
+
+          <ListCard
+            title="Recent Team Leave Requests"
+            subtitle="Latest leave applications"
+            empty="No recent team leave requests."
+            items={d.recentLeaves || []}
+            link="/leaves"
+            render={leave => (
+              <>
+                <div className="flex min-w-0 items-center gap-3">
+                  <EmployeeAvatar
+                    name={leave.employee?.user?.name || "Employee"}
+                  />
+
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {leave.employee?.user?.name || "Employee"}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {leave.leaveType || "Leave"} ·{" "}
+                      {fmtDate(leave.startDate)}
+                    </p>
+                  </div>
+                </div>
+
+                <StatusBadge value={leave.status} />
+              </>
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // =====================================================
+  // EMPLOYEE DASHBOARD
+  // =====================================================
+
   const att = d.attendance;
   const leave = d.latestLeave;
 
   return (
-    <div className="space-y-6">
-      <h1 className="page-title">Hello, {user.name.split(" ")[0]} 👋</h1>
+    <div className="space-y-7 pb-8">
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Today's attendance" icon={Clock} tone={att ? "green" : "amber"}
-          value={att ? (att.checkOutAt ? "Checked out" : "Checked in") : "Not marked"} />
-        <Stat label="Today's DAR" icon={FileText} tone={d.submittedDarToday ? "green" : "amber"}
-          value={d.submittedDarToday ? "Submitted" : "Not submitted"} />
-        <div className="card flex items-center gap-4 p-5">
-          <span className={`grid h-12 w-12 place-items-center rounded-xl ${tones.indigo}`}><CalendarDays size={22} /></span>
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
+        <div className="relative z-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
           <div>
-            <p className="text-sm text-slate-500">Latest leave</p>
-            {leave
-              ? <StatusBadge value={leave.status} />
-              : <p className="text-2xl font-bold text-slate-900">No requests</p>}
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-indigo-100">
+              <UserCheck size={14} />
+              Employee Workspace
+            </div>
+
+            <h1 className="text-2xl font-bold sm:text-3xl">
+              Hello, {getFirstName(user?.name)}!
+            </h1>
+
+            <p className="mt-2 text-sm leading-6 text-indigo-100/80">
+              Welcome to your workspace. Here's your attendance, daily
+              reports and leave overview.
+            </p>
           </div>
+
+          <button
+            type="button"
+            onClick={refreshDashboard}
+            disabled={loading}
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+          >
+            <RefreshCw
+              size={16}
+              className={loading ? "animate-spin" : ""}
+            />
+            Refresh
+          </button>
+        </div>
+
+        <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border-[35px] border-white/5" />
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Dashboard refresh failed: {error}
+        </div>
+      )}
+
+      <SectionHeader
+        title="My Overview"
+        subtitle="Your latest attendance and work activity."
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Stat
+          label="Today's Attendance"
+          icon={Clock}
+          tone={att ? "green" : "amber"}
+          value={
+            att
+              ? att.checkOutAt
+                ? "Checked Out"
+                : "Checked In"
+              : "Not Marked"
+          }
+          description={
+            att?.checkInAt
+              ? `Check-in: ${fmtTime(att.checkInAt)}`
+              : "Your attendance has not been marked yet."
+          }
+        />
+
+        <Stat
+          label="Today's DAR"
+          icon={FileText}
+          tone={d.submittedDarToday ? "green" : "amber"}
+          value={d.submittedDarToday ? "Submitted" : "Not Submitted"}
+          description="Daily activity report status"
+        />
+
+        <div className="rounded-2xl border border-slate-200 border-l-4 border-l-indigo-500 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                Latest Leave Request
+              </p>
+
+              <div className="mt-3">
+                {leave ? (
+                  <StatusBadge value={leave.status} />
+                ) : (
+                  <p className="text-xl font-bold text-slate-900">
+                    No Requests
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+              <CalendarDays size={23} />
+            </div>
+          </div>
+
+          <p className="mt-4 text-xs text-slate-400">
+            {leave
+              ? `${leave.leaveType || "Leave"} · ${fmtDate(leave.startDate)}`
+              : "Your leave application history will appear here."}
+          </p>
         </div>
       </div>
 
       {leave?.reviewNote && (
-        <p className="card p-4 text-sm text-slate-600">
-          HR note on your last leave{leave.reviewedBy?.name && ` (${leave.reviewedBy.name})`}: {leave.reviewNote}
-        </p>
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="mt-0.5 text-amber-600">
+            <CircleAlert size={19} />
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-amber-900">
+              HR Review Note
+            </p>
+
+            <p className="mt-1 text-sm leading-6 text-amber-800">
+              {leave.reviewNote}
+            </p>
+
+            {leave.reviewedBy?.name && (
+              <p className="mt-2 text-xs text-amber-700">
+                Reviewed by {leave.reviewedBy.name}
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
-      <div className="card p-5">
-        <h2 className="mb-3 font-semibold">Quick actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <Link to="/attendance" className="btn-success"><Clock size={16} /> Mark attendance</Link>
-          <Link to="/reports" className="btn-primary"><FileText size={16} /> Submit DAR</Link>
-          <Link to="/leaves" className="btn-secondary"><CalendarDays size={16} /> Apply for leave</Link>
+      <section>
+        <SectionHeader
+          title="Quick Actions"
+          subtitle="Access your everyday work activities."
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <QuickAction
+            to="/attendance"
+            icon={Clock}
+            title="My Attendance"
+            description="Check in, check out and view attendance history."
+            tone="green"
+          />
+
+          <QuickAction
+            to="/reports"
+            icon={FileText}
+            title="Daily Activity Report"
+            description="Submit and review your daily work reports."
+            tone="indigo"
+          />
+
+          <QuickAction
+            to="/leaves"
+            icon={CalendarDays}
+            title="Apply for Leave"
+            description="Submit and track your leave applications."
+            tone="sky"
+          />
         </div>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <ListCard
+          title="My Recent Leave Requests"
+          subtitle="Your latest leave applications"
+          empty="You haven't submitted any leave requests yet."
+          items={d.recentLeaves || []}
+          link="/leaves"
+          render={item => (
+            <>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800">
+                  {item.leaveType || "Leave"}
+                </p>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  {fmtDate(item.startDate)} – {fmtDate(item.endDate)}
+                </p>
+              </div>
+
+              <StatusBadge value={item.status} />
+            </>
+          )}
+        />
+
+        <ListCard
+          title="My Recent Daily Reports"
+          subtitle="Your latest report submissions"
+          empty="You haven't submitted any daily reports yet."
+          items={d.recentReports || []}
+          link="/reports"
+          render={report => (
+            <>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800">
+                  Daily Activity Report
+                </p>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  {fmtDate(report.reportDate)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-medium text-emerald-600">
+                <CheckCircle2 size={15} />
+                Submitted
+              </div>
+            </>
+          )}
+        />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ListCard
-          title="My recent leave requests" empty="You haven't requested any leave"
-          items={d.recentLeaves || []}
-          render={l => (
-            <>
-              <span>
-                <span className="font-medium">{l.leaveType}</span>
-                <span className="text-slate-500"> · {fmtDate(l.startDate)} – {fmtDate(l.endDate)}</span>
-              </span>
-              <StatusBadge value={l.status} />
-            </>
-          )}
-        />
-        <ListCard
-          title="My recent reports" empty="You haven't submitted any reports"
-          items={d.recentReports || []}
-          render={r => (
-            <>
-              <span className="font-medium">{r.reportDate}</span>
-              <span className="text-slate-500">
-                {new Date(r.submittedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}
-              </span>
-            </>
-          )}
-        />
+      <div className="flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+        <div className="mt-0.5 text-indigo-600">
+          <ShieldCheck size={19} />
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-indigo-900">
+            Your workspace
+          </p>
+
+          <p className="mt-1 text-xs leading-5 text-indigo-700">
+            Keep your attendance updated and submit your daily activity
+            reports regularly. You can track your leave applications and
+            review updates from HR through this dashboard.
+          </p>
+        </div>
       </div>
     </div>
   );
