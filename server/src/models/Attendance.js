@@ -25,21 +25,39 @@ const attendanceSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Lunch tracking
+    lunchOutAt: {
+      type: Date,
+      default: null,
+    },
+
+    lunchInAt: {
+      type: Date,
+      default: null,
+    },
+
+    lunchMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lunchOverLimit: {
+  type: Boolean,
+  default: false,
+},
+
     checkOutAt: {
       type: Date,
       default: null,
       validate: {
         validator: function (value) {
-          return (
-            !value ||
-            !this.checkInAt ||
-            value >= this.checkInAt
-          );
+          return !value || !this.checkInAt || value >= this.checkInAt;
         },
         message: "Check-out cannot be earlier than check-in.",
       },
     },
 
+    // Existing field retained for compatibility.
     totalMinutes: {
       type: Number,
       default: 0,
@@ -48,6 +66,23 @@ const attendanceSchema = new mongoose.Schema(
         validator: Number.isInteger,
         message: "Total minutes must be a whole number.",
       },
+    },
+
+    // Actual working minutes excluding lunch.
+    workingMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: {
+        validator: Number.isInteger,
+        message: "Working minutes must be a whole number.",
+      },
+    },
+
+    // Late arrival is independent of attendance duration.
+    isLate: {
+      type: Boolean,
+      default: false,
     },
 
     status: {

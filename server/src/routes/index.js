@@ -14,7 +14,12 @@ import * as rep from "../controllers/report.js";
 import * as lv from "../controllers/leave.js";
 import * as task from "../controllers/task.js";
 import * as taskAssignment from "../controllers/taskAssignment.js";
-
+import * as payroll from "../controllers/payroll.js";
+import * as notification from "../controllers/notification.js";
+import * as announcement from "../controllers/announcement.js";
+import * as policy from "../controllers/policy.js";
+import * as performance from "../controllers/performance.js";
+import { policyUpload } from "../middleware/policyUpload.js";
 import { dashboard } from "../controllers/dashboard.js";
 import { employeeUpload } from "../middleware/employeeUpload.js";
 
@@ -47,9 +52,7 @@ const requireManagerProfile = (req, res, next) => {
 // =====================================
 
 r.post("/auth/login", auth.login);
-
 r.post("/auth/manager-login", auth.managerLogin);
-
 r.get("/auth/me", protect, auth.me);
 
 // =====================================
@@ -151,6 +154,24 @@ r.get(
   adminOrManager,
   requireManagerProfile,
   att.listAll
+);
+
+// Start lunch break
+r.post(
+  "/attendance/lunch-out",
+  protect,
+  managerOrEmployee,
+  requireEmployeeProfile,
+  att.lunchOut
+);
+
+// End lunch break
+r.post(
+  "/attendance/lunch-in",
+  protect,
+  managerOrEmployee,
+  requireEmployeeProfile,
+  att.lunchIn
 );
 
 // =====================================
@@ -349,6 +370,260 @@ r.patch(
     req.body.status = "Rejected";
     return lv.decide(req, res, next);
   }
+);
+
+// =====================================
+// PAYROLL MANAGEMENT
+// =====================================
+
+// HR: View all employee salary structures
+r.get(
+  "/payroll",
+  protect,
+  admin,
+  payroll.listSalaryStructures
+);
+
+// HR: View one employee's salary history
+r.get(
+  "/payroll/employees/:employeeId",
+  protect,
+  admin,
+  payroll.getEmployeeSalaryHistory
+);
+
+// HR: Create a salary structure
+r.post(
+  "/payroll/salary-structures",
+  protect,
+  admin,
+  payroll.createSalaryStructure
+);
+
+// HR: Update the active salary structure
+r.put(
+  "/payroll/salary-structures/:id",
+  protect,
+  admin,
+  payroll.updateSalaryStructure
+);
+
+// Employee: View own salary and salary history
+r.get(
+  "/payroll/me",
+  protect,
+  employeeOnly,
+  requireEmployeeProfile,
+  payroll.getMySalary
+);
+
+// =====================================
+// HR NOTIFICATIONS
+// =====================================
+
+// HR: Get all notifications and unread count
+r.get(
+  "/notifications",
+  protect,
+  admin,
+  notification.getNotifications
+);
+
+// HR: Mark notification as read
+r.patch(
+  "/notifications/:id/read",
+  protect,
+  admin,
+  notification.markNotificationRead
+);
+
+// =====================================
+// HR ANNOUNCEMENTS
+// =====================================
+
+// HR: Create announcement
+r.post(
+  "/announcements",
+  protect,
+  admin,
+  announcement.createAnnouncement
+);
+
+// HR: View all announcements (including drafts)
+r.get(
+  "/announcements",
+  protect,
+  admin,
+  announcement.listAnnouncements
+);
+
+// Employee / Manager: View published announcements only
+r.get(
+  "/announcements/employee",
+  protect,
+  managerOrEmployee,
+  requireManagerProfile,
+  announcement.listAnnouncements
+);
+
+// HR: View individual announcement
+r.get(
+  "/announcements/:id",
+  protect,
+  admin,
+  announcement.getAnnouncement
+);
+
+// HR: Edit announcement
+r.put(
+  "/announcements/:id",
+  protect,
+  admin,
+  announcement.updateAnnouncement
+);
+
+// HR: Deactivate announcement
+r.patch(
+  "/announcements/:id/deactivate",
+  protect,
+  admin,
+  announcement.deactivateAnnouncement
+);
+
+// =====================================
+// COMPANY POLICIES
+// =====================================
+
+// HR: Create policy with optional PDF
+r.post(
+  "/policies",
+  protect,
+  admin,
+  policyUpload,
+  policy.createPolicy
+);
+
+// HR: View all policies
+r.get(
+  "/policies",
+  protect,
+  admin,
+  policy.listPolicies
+);
+
+// Employee / Manager: View published policies
+r.get(
+  "/policies/employee",
+  protect,
+  managerOrEmployee,
+  requireManagerProfile,
+  policy.listPolicies
+);
+
+// HR / Employee / Manager: View or download policy PDF
+r.get(
+  "/policies/:id/document",
+  protect,
+  authorize("admin", "manager", "employee"),
+  requireManagerProfile,
+  policy.getPolicyDocument
+);
+
+// HR: View individual policy
+r.get(
+  "/policies/:id",
+  protect,
+  admin,
+  policy.getPolicy
+);
+
+// HR: Edit policy and optionally replace PDF
+r.put(
+  "/policies/:id",
+  protect,
+  admin,
+  policyUpload,
+  policy.updatePolicy
+);
+
+// HR: Deactivate policy
+r.patch(
+  "/policies/:id/deactivate",
+  protect,
+  admin,
+  policy.deactivatePolicy
+);
+
+// =====================================
+// PERFORMANCE MANAGEMENT
+// =====================================
+
+// Manager: Get employees assigned to this manager
+r.get(
+  "/performance/manager/team",
+  protect,
+  managerOnly,
+  requireEmployeeProfile,
+  performance.getManagerTeam
+);
+
+// Manager: Submit or update daily employee rating
+r.post(
+  "/performance/manager/daily",
+  protect,
+  managerOnly,
+  requireEmployeeProfile,
+  performance.submitManagerDailyReview
+);
+
+// Manager: View daily ratings given to their team
+r.get(
+  "/performance/manager/team-reviews",
+  protect,
+  managerOnly,
+  requireEmployeeProfile,
+  performance.getManagerTeamReviews
+);
+
+// HR: Get all active employees, including managers
+r.get(
+  "/performance/hr/employees",
+  protect,
+  admin,
+  performance.getHREmployees
+);
+
+// HR: Submit or update monthly employee rating
+r.post(
+  "/performance/hr/monthly",
+  protect,
+  admin,
+  performance.submitHRMonthlyReview
+);
+
+// HR: View monthly performance reviews
+r.get(
+  "/performance/hr/monthly",
+  protect,
+  admin,
+  performance.getHRMonthlyReviews
+);
+
+// HR: View manager daily reviews for a selected month
+r.get(
+  "/performance/hr/daily",
+  protect,
+  admin,
+  performance.getHRDailyReviews
+);
+
+// Employee / Manager: View own performance history
+r.get(
+  "/performance/me",
+  protect,
+  managerOrEmployee,
+  requireEmployeeProfile,
+  performance.getMyPerformance
 );
 
 // =====================================

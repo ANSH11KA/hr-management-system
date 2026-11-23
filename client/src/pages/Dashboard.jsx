@@ -24,11 +24,21 @@ import {
   CircleAlert,
   CalendarRange,
   ClipboardList,
+  Coffee,
+  Megaphone,
+  Bell,
+  CalendarCheck,
 } from "lucide-react";
 
 import api, { errMsg } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import StatusBadge from "../components/StatusBadge";
+
+// =====================================================
+// CONSTANTS & HELPERS
+// =====================================================
+
+const MAX_LUNCH_MINUTES = 60;
 
 const tones = {
   indigo: {
@@ -87,8 +97,149 @@ const fmtTime = value => {
   });
 };
 
+const fmtDuration = minutes => {
+  if (
+    minutes === null ||
+    minutes === undefined ||
+    !Number.isFinite(Number(minutes))
+  ) {
+    return "-";
+  }
+
+  const total = Math.max(0, Math.floor(Number(minutes)));
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+
+  return `${hours}h ${mins}m`;
+};
+
 const getFirstName = name =>
   String(name || "User").trim().split(/\s+/)[0];
+
+// Announcement date formatter.
+const fmtAnnouncementDate = value => {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+};
+
+// Announcement priority sorting.
+const priorityOrder = {
+  Urgent: 1,
+  High: 2,
+  Normal: 3,
+};
+
+const getPriorityStyle = priority => {
+  switch (priority) {
+    case "Urgent":
+      return {
+        badge: "bg-rose-100 text-rose-700 border-rose-200",
+        border: "border-l-rose-500",
+        icon: "bg-rose-100 text-rose-600",
+        heading: "text-rose-900",
+        label: "Urgent Announcement",
+      };
+
+    case "High":
+      return {
+        badge: "bg-amber-100 text-amber-700 border-amber-200",
+        border: "border-l-amber-500",
+        icon: "bg-amber-100 text-amber-600",
+        heading: "text-slate-900",
+        label: "High Priority",
+      };
+
+    default:
+      return {
+        badge: "bg-indigo-100 text-indigo-700 border-indigo-200",
+        border: "border-l-indigo-500",
+        icon: "bg-indigo-100 text-indigo-600",
+        heading: "text-slate-900",
+        label: "Normal",
+      };
+  }
+};
+
+// Calculate total working time excluding lunch.
+const getLiveWorkingMinutes = (attendance, now = Date.now()) => {
+  if (!attendance?.checkInAt) return null;
+
+  // Use the finalized backend calculation after checkout.
+  if (attendance.checkOutAt) {
+    if (attendance.workingMinutes != null) {
+      return Number(attendance.workingMinutes);
+    }
+
+    if (attendance.totalMinutes != null) {
+      return Math.max(
+        0,
+        Number(attendance.totalMinutes) -
+          Number(attendance.lunchMinutes || 0)
+      );
+    }
+
+    return null;
+  }
+
+  const checkIn = new Date(attendance.checkInAt).getTime();
+
+  if (!Number.isFinite(checkIn)) return null;
+
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((now - checkIn) / 60000)
+  );
+
+  let lunchMinutes = Number(attendance.lunchMinutes || 0);
+
+  // Subtract the currently running lunch break as well.
+  if (attendance.lunchOutAt && !attendance.lunchInAt) {
+    const lunchOut = new Date(attendance.lunchOutAt).getTime();
+
+    if (Number.isFinite(lunchOut)) {
+      lunchMinutes += Math.max(
+        0,
+        Math.floor((now - lunchOut) / 60000)
+      );
+    }
+  }
+
+  return Math.max(0, elapsedMinutes - lunchMinutes);
+};
+
+// Calculate completed + currently running lunch duration.
+const getLiveLunchMinutes = (attendance, now = Date.now()) => {
+  if (!attendance?.lunchOutAt) return null;
+
+  let minutes = Number(attendance.lunchMinutes || 0);
+
+  if (!attendance.lunchInAt) {
+    const lunchOut = new Date(attendance.lunchOutAt).getTime();
+
+    if (Number.isFinite(lunchOut)) {
+      minutes += Math.max(
+        0,
+        Math.floor((now - lunchOut) / 60000)
+      );
+    }
+  }
+
+  return Math.max(0, minutes);
+};
+
+// =====================================================
+// SHARED COMPONENTS
+// =====================================================
 
 function Stat({
   label,
@@ -326,6 +477,423 @@ function ErrorState({ message, onRetry }) {
   );
 }
 
+// =====================================================
+// EMPLOYEE ANNOUNCEMENTS
+// =====================================================
+
+function AnnouncementSection({
+  announcements = [],
+  loading,
+  error,
+  onRetry,
+}) {
+  const sortedAnnouncements = [...announcements].sort(
+    (a, b) =>
+      (priorityOrder[a.priority] || 99) -
+      (priorityOrder[b.priority] || 99)
+  );
+
+  const urgentCount = announcements.filter(
+    item => item.priority === "Urgent"
+  ).length;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+            <Megaphone size={22} />
+          </div>
+
+          <div>
+            <h2 className="font-bold text-slate-900">
+              HR Announcements
+            </h2>
+
+            <p className="mt-1 text-xs text-slate-500">
+              Important updates and notices from HR.
+            </p>
+          </div>
+        </div>
+
+        {!loading && announcements.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {urgentCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">
+                <AlertTriangle size={13} />
+                {urgentCount} Urgent
+              </span>
+            )}
+
+            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+              {announcements.length}{" "}
+              {announcements.length === 1
+                ? "Announcement"
+                : "Announcements"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="p-5">
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2].map(item => (
+              <div
+                key={item}
+                className="animate-pulse rounded-xl border border-slate-100 p-4"
+              >
+                <div className="h-4 w-32 rounded bg-slate-200" />
+                <div className="mt-3 h-5 w-2/3 rounded bg-slate-200" />
+                <div className="mt-3 h-3 w-full rounded bg-slate-100" />
+                <div className="mt-2 h-3 w-4/5 rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+            <div className="flex items-start gap-3">
+              <CircleAlert
+                size={20}
+                className="mt-0.5 shrink-0 text-rose-600"
+              />
+
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-rose-800">
+                  Unable to load announcements
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-rose-700">
+                  {error}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-700"
+                >
+                  <RefreshCw size={13} />
+                  Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : sortedAnnouncements.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-9 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm">
+              <Bell size={22} />
+            </div>
+
+            <p className="mt-3 text-sm font-semibold text-slate-700">
+              No announcements right now
+            </p>
+
+            <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">
+              When HR publishes an announcement, it will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sortedAnnouncements.map(announcement => {
+              const style = getPriorityStyle(
+                announcement.priority
+              );
+
+              return (
+                <article
+                  key={announcement._id}
+                  className={`rounded-xl border border-slate-200 border-l-4 ${style.border} bg-white p-4 transition hover:shadow-sm`}
+                >
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div
+                        className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${style.icon}`}
+                      >
+                        {announcement.priority === "Urgent" ? (
+                          <AlertTriangle size={19} />
+                        ) : (
+                          <Megaphone size={19} />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${style.badge}`}
+                          >
+                            {announcement.priority || "Normal"}
+                          </span>
+
+                          {announcement.priority === "Urgent" && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-600">
+                              Important Notice
+                            </span>
+                          )}
+                        </div>
+
+                        <h3
+                          className={`break-words text-sm font-bold ${style.heading}`}
+                        >
+                          {announcement.title}
+                        </h3>
+
+                        <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-slate-600">
+                          {announcement.description}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1.5">
+                      <CalendarCheck size={13} />
+                      Published:{" "}
+                      {fmtAnnouncementDate(
+                        announcement.publishedAt ||
+                          announcement.createdAt
+                      )}
+                    </span>
+
+                    {announcement.expiresAt && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarDays size={13} />
+                        Valid until:{" "}
+                        {fmtAnnouncementDate(
+                          announcement.expiresAt
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// =====================================================
+// EMPLOYEE ATTENDANCE CARD
+// =====================================================
+
+function EmployeeAttendanceCard({ attendance }) {
+  const att = attendance;
+
+  // Keep the clock updated while attendance or lunch is running.
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    if (!att?.checkInAt || att?.checkOutAt) return;
+
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [att?.checkInAt, att?.checkOutAt]);
+
+  const lunchInProgress =
+    Boolean(att?.lunchOutAt) && !att?.lunchInAt;
+
+  const workingMinutes = getLiveWorkingMinutes(
+    att,
+    currentTime
+  );
+
+  const lunchMinutes = getLiveLunchMinutes(
+    att,
+    currentTime
+  );
+
+  const lunchExceeded =
+    Boolean(att?.lunchOverLimit) ||
+    (lunchMinutes !== null &&
+      lunchMinutes > MAX_LUNCH_MINUTES);
+
+  const attendanceStatus = !att
+    ? "Not Marked"
+    : att.status === "Absent"
+      ? "Absent"
+      : att.status === "Half Day"
+        ? "Half Day"
+        : att.checkOutAt
+          ? "Completed"
+          : lunchInProgress
+            ? "On Lunch Break"
+            : "Working";
+
+  const statusTone =
+    attendanceStatus === "Absent"
+      ? "text-rose-600"
+      : attendanceStatus === "Half Day"
+        ? "text-amber-600"
+        : attendanceStatus === "Not Marked"
+          ? "text-slate-500"
+          : "text-emerald-600";
+
+  return (
+    <>
+      {/* ATTENDANCE DETAILS */}
+      <div className="rounded-2xl border border-slate-200 border-l-4 border-l-indigo-500 bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-500">
+              Today's Attendance
+            </p>
+
+            <p className={`mt-3 text-xl font-bold ${statusTone}`}>
+              {attendanceStatus}
+            </p>
+          </div>
+
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+            <Clock size={23} />
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-3 text-xs">
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Check In</span>
+
+            <span className="font-semibold text-slate-700">
+              {fmtTime(att?.checkInAt)}
+            </span>
+          </div>
+
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Check Out</span>
+
+            <span className="font-semibold text-slate-700">
+              {fmtTime(att?.checkOutAt)}
+            </span>
+          </div>
+
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Working Hours</span>
+
+            <span className="font-semibold text-slate-700">
+              {workingMinutes !== null
+                ? fmtDuration(workingMinutes)
+                : "-"}
+            </span>
+          </div>
+
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Attendance Timing</span>
+
+            {!att?.checkInAt ? (
+              <span className="text-slate-400">
+                Not checked in
+              </span>
+            ) : att.isLate ? (
+              <span className="font-semibold text-rose-600">
+                Late
+              </span>
+            ) : (
+              <span className="font-semibold text-emerald-600">
+                On Time
+              </span>
+            )}
+          </div>
+
+          {att?.checkOutAt && (
+            <div className="flex justify-between gap-2">
+              <span className="text-slate-500">Final Status</span>
+
+              <span className="font-semibold text-slate-700">
+                {att.status || "-"}
+              </span>
+            </div>
+          )}
+
+          {att?.checkInAt && !att?.checkOutAt && (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-700">
+              Your working hours are updating automatically.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* LUNCH DETAILS */}
+      <div className="rounded-2xl border border-slate-200 border-l-4 border-l-sky-500 bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-500">
+              Lunch Break
+            </p>
+
+            <p className="mt-3 text-xl font-bold text-slate-900">
+              {!att?.lunchOutAt
+                ? "Not Started"
+                : lunchInProgress
+                  ? "In Progress"
+                  : "Completed"}
+            </p>
+          </div>
+
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+            <Coffee size={23} />
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-3 text-xs">
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Lunch Out</span>
+
+            <span className="font-semibold text-slate-700">
+              {fmtTime(att?.lunchOutAt)}
+            </span>
+          </div>
+
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Lunch In</span>
+
+            <span className="font-semibold text-slate-700">
+              {fmtTime(att?.lunchInAt)}
+            </span>
+          </div>
+
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Lunch Duration</span>
+
+            <span
+              className={`font-semibold ${
+                lunchExceeded
+                  ? "text-rose-600"
+                  : "text-slate-700"
+              }`}
+            >
+              {lunchMinutes !== null
+                ? fmtDuration(lunchMinutes)
+                : "-"}
+            </span>
+          </div>
+
+          {lunchExceeded && (
+            <p className="flex items-center gap-1.5 font-semibold text-rose-600">
+              <AlertTriangle size={14} />
+              Lunch exceeded 1 hour
+            </p>
+          )}
+
+          {lunchInProgress && (
+            <p className="rounded-lg bg-sky-50 px-3 py-2 text-sky-700">
+              Your lunch break is currently running. The duration is
+              updating automatically.
+            </p>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// =====================================================
+// MAIN DASHBOARD
+// =====================================================
+
 export default function Dashboard() {
   const { user } = useAuth();
 
@@ -334,11 +902,21 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
 
+  // Employee announcements state.
+  const [announcements, setAnnouncements] = useState([]);
+  const [announcementsLoading, setAnnouncementsLoading] =
+    useState(false);
+  const [announcementsError, setAnnouncementsError] =
+    useState("");
+
   const role = user?.role;
 
   const admin = role === "admin";
   const manager = role === "manager";
-  const employee = role === "employee";
+
+  // =====================================================
+  // DASHBOARD DATA
+  // =====================================================
 
   useEffect(() => {
     let ignore = false;
@@ -371,6 +949,56 @@ export default function Dashboard() {
     };
   }, [reloadKey]);
 
+  // =====================================================
+  // EMPLOYEE ANNOUNCEMENTS DATA
+  // =====================================================
+
+  useEffect(() => {
+    if (role !== "employee") {
+      setAnnouncements([]);
+      setAnnouncementsLoading(false);
+      setAnnouncementsError("");
+      return;
+    }
+
+    let ignore = false;
+
+    const fetchAnnouncements = async () => {
+      setAnnouncementsLoading(true);
+      setAnnouncementsError("");
+
+      try {
+        const response = await api.get(
+          "/announcements/employee"
+        );
+
+        if (!ignore) {
+          const items = Array.isArray(
+            response.data?.announcements
+          )
+            ? response.data.announcements
+            : [];
+
+          setAnnouncements(items);
+        }
+      } catch (error) {
+        if (!ignore) {
+          setAnnouncementsError(errMsg(error));
+        }
+      } finally {
+        if (!ignore) {
+          setAnnouncementsLoading(false);
+        }
+      }
+    };
+
+    fetchAnnouncements();
+
+    return () => {
+      ignore = true;
+    };
+  }, [role, reloadKey]);
+
   const refreshDashboard = () => {
     setReloadKey(key => key + 1);
   };
@@ -378,7 +1006,7 @@ export default function Dashboard() {
   if (loading && !d) {
     return (
       <div className="space-y-6">
-        <Skeleton count={admin ? 7 : manager ? 9 : 3} />
+        <Skeleton count={admin ? 7 : manager ? 9 : 4} />
       </div>
     );
   }
@@ -401,8 +1029,6 @@ export default function Dashboard() {
   if (admin) {
     return (
       <div className="space-y-7 pb-8">
-
-        {/* HEADER */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
           <div className="relative z-10 flex flex-col justify-between gap-6 md:flex-row md:items-center">
             <div className="max-w-2xl">
@@ -528,7 +1154,6 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* QUICK ACTIONS */}
         <section>
           <SectionHeader
             title="Quick Actions"
@@ -570,7 +1195,6 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* RECENT ACTIVITIES */}
         <section>
           <SectionHeader
             title="Recent Activities"
@@ -599,8 +1223,7 @@ export default function Dashboard() {
                       <p className="mt-1 text-xs text-slate-500">
                         {leave.leaveType || "Leave"} ·{" "}
                         {fmtDate(leave.startDate)}
-                        {leave.endDate &&
-                          ` – ${fmtDate(leave.endDate)}`}
+                        {leave.endDate && ` – ${fmtDate(leave.endDate)}`}
                       </p>
                     </div>
                   </div>
@@ -673,7 +1296,6 @@ export default function Dashboard() {
   if (manager) {
     return (
       <div className="space-y-7 pb-8">
-
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
           <div className="relative z-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
             <div>
@@ -902,7 +1524,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-7 pb-8">
-
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-800 p-6 text-white shadow-lg sm:p-8">
         <div className="relative z-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
           <div>
@@ -944,29 +1565,21 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* HR ANNOUNCEMENTS */}
+      <AnnouncementSection
+        announcements={announcements}
+        loading={announcementsLoading}
+        error={announcementsError}
+        onRetry={refreshDashboard}
+      />
+
       <SectionHeader
         title="My Overview"
         subtitle="Your latest attendance and work activity."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Stat
-          label="Today's Attendance"
-          icon={Clock}
-          tone={att ? "green" : "amber"}
-          value={
-            att
-              ? att.checkOutAt
-                ? "Checked Out"
-                : "Checked In"
-              : "Not Marked"
-          }
-          description={
-            att?.checkInAt
-              ? `Check-in: ${fmtTime(att.checkInAt)}`
-              : "Your attendance has not been marked yet."
-          }
-        />
+        <EmployeeAttendanceCard attendance={att} />
 
         <Stat
           label="Today's DAR"
@@ -1042,7 +1655,7 @@ export default function Dashboard() {
             to="/attendance"
             icon={Clock}
             title="My Attendance"
-            description="Check in, check out and view attendance history."
+            description="Check in, check out, manage lunch and view attendance history."
             tone="green"
           />
 
@@ -1108,7 +1721,7 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-2 text-xs font-medium text-emerald-600">
                 <CheckCircle2 size={15} />
-                Submitted
+                {report.overallStatus || "Submitted"}
               </div>
             </>
           )}

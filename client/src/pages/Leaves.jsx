@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   XCircle,
   CalendarDays,
-  Users,
   Search,
   RefreshCw,
   Filter,
@@ -24,6 +23,7 @@ import {
   MessageSquare,
   BriefcaseBusiness,
   Hourglass,
+  Wallet,
 } from "lucide-react";
 
 import api, { errMsg } from "../api";
@@ -35,6 +35,8 @@ const emptyForm = {
   leaveType: "Casual",
   startDate: "",
   endDate: "",
+  dayType: "FullDay",
+  halfDaySession: "",
   reason: "",
 };
 
@@ -57,7 +59,8 @@ const formatDate = (value) => {
   });
 };
 
-// Calculate calendar days without time-zone/DST differences.
+// Calculate calendar days for legacy requests and preview only.
+// The backend's requestedDays is authoritative because it excludes Sundays and holidays.
 const calculateDays = (start, end) => {
   if (!start || !end) return 0;
 
@@ -72,15 +75,40 @@ const calculateDays = (start, end) => {
     return 0;
   }
 
-  return Math.round(
-    (endDate.getTime() - startDate.getTime()) / 86400000
-  ) + 1;
+  return (
+    Math.round(
+      (endDate.getTime() - startDate.getTime()) / 86400000
+    ) + 1
+  );
+};
+
+const getRequestedDays = (row) => {
+  if (typeof row.requestedDays === "number") {
+    return row.requestedDays;
+  }
+
+  if (row.dayType === "HalfDay") {
+    return 0.5;
+  }
+
+  return calculateDays(row.startDate, row.endDate);
 };
 
 const getEmployeeName = (row) =>
-  row.employee?.user?.name ||
-  row.employee?.name ||
-  "Employee";
+  row.employee?.personal
+    ? [
+        row.employee.personal.firstName,
+        row.employee.personal.middleName,
+        row.employee.personal.lastName,
+      ]
+        .filter(Boolean)
+        .join(" ") ||
+      row.employee?.user?.name ||
+      row.employee?.name ||
+      "Employee"
+    : row.employee?.user?.name ||
+      row.employee?.name ||
+      "Employee";
 
 const getEmployeeId = (row) =>
   row.employee?.employeeId ||
@@ -173,6 +201,60 @@ const DetailItem = ({ label, value, icon: Icon }) => (
     </p>
   </div>
 );
+
+// Displays paid and unpaid allocation after approval.
+const AllocationDetails = ({ row }) => {
+  if (
+    row.status !== "Approved" ||
+    row.allocationStatus !== "Allocated"
+  ) {
+    return null;
+  }
+
+  const paidDays = Number(row.paidDays || 0);
+  const unpaidDays = Number(row.unpaidDays || 0);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+          <Wallet size={16} />
+        </span>
+
+        <div>
+          <p className="text-sm font-bold text-slate-800">
+            Leave allocation
+          </p>
+          <p className="text-xs text-slate-400">
+            Final allocation after HR approval
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-xl bg-emerald-50 p-3">
+          <p className="text-xs font-semibold text-emerald-700">
+            Paid from earned leave
+          </p>
+
+          <p className="mt-1 text-xl font-bold text-emerald-800">
+            {paidDays} {paidDays === 1 ? "day" : "days"}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-orange-50 p-3">
+          <p className="text-xs font-semibold text-orange-700">
+            Unpaid leave
+          </p>
+
+          <p className="mt-1 text-xl font-bold text-orange-800">
+            {unpaidDays} {unpaidDays === 1 ? "day" : "days"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function Leaves() {
   const { user } = useAuth();
@@ -297,16 +379,55 @@ export default function Leaves() {
       (row) => getStatus(row.status) === value.toLowerCase()
     ).length;
 
+  // Keep half-day end date equal to start date.
+  const updateForm = (field, value) => {
+    setForm((previous) => {
+      const updated = {
+        ...previous,
+        [field]: value,
+      };
+
+      if (field === "dayType") {
+        if (value === "HalfDay") {
+          updated.endDate = updated.startDate;
+        } else {
+          updated.halfDaySession = "";
+        }
+      }
+
+      if (
+        field === "startDate" &&
+        previous.dayType === "HalfDay"
+      ) {
+        updated.endDate = value;
+      }
+
+      if (
+        field === "startDate" &&
+        previous.dayType === "FullDay" &&
+        previous.endDate &&
+        value > previous.endDate
+      ) {
+        updated.endDate = "";
+      }
+
+      return updated;
+    });
+  };
+
   // Submit employee leave request.
   const apply = async (event) => {
     event.preventDefault();
 
-    setMsg({ type: "", text: "" });
+    setMsg({
+      type: "",
+      text: "",
+    });
 
     if (!form.startDate || !form.endDate) {
       setMsg({
         type: "error",
-        text: "Please select both leave dates.",
+        text: "Please select the leave date or date range.",
       });
       return;
     }
@@ -327,11 +448,40 @@ export default function Leaves() {
       return;
     }
 
+    if (
+      form.dayType === "HalfDay" &&
+      !form.halfDaySession
+    ) {
+      setMsg({
+        type: "error",
+        text: "Please select First Half or Second Half.",
+      });
+      return;
+    }
+
+    if (
+      form.dayType === "HalfDay" &&
+      form.startDate !== form.endDate
+    ) {
+      setMsg({
+        type: "error",
+        text: "Half-day leave must be requested for a single date.",
+      });
+      return;
+    }
+
     setSubmitting(true);
 
     try {
       await api.post("/leaves", {
-        ...form,
+        leaveType: form.leaveType,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        dayType: form.dayType,
+        halfDaySession:
+          form.dayType === "HalfDay"
+            ? form.halfDaySession
+            : null,
         reason: form.reason.trim(),
       });
 
@@ -367,18 +517,21 @@ export default function Leaves() {
     if (note === null) return;
 
     setBusyId(id);
-    setMsg({ type: "", text: "" });
+    setMsg({
+      type: "",
+      text: "",
+    });
 
     try {
       await api.patch(`/leaves/${id}/${action}`, {
-        note: note.trim(),
+        reviewNote: note.trim(),
       });
 
       setMsg({
         type: "ok",
         text:
           action === "approve"
-            ? "Leave request approved successfully."
+            ? "Leave request approved and allocation processed successfully."
             : "Leave request rejected successfully.",
       });
 
@@ -404,7 +557,10 @@ export default function Leaves() {
     if (!confirmed) return;
 
     setBusyId(id);
-    setMsg({ type: "", text: "" });
+    setMsg({
+      type: "",
+      text: "",
+    });
 
     try {
       await api.patch(`/leaves/${id}/cancel`);
@@ -433,14 +589,21 @@ export default function Leaves() {
   };
 
   const refresh = () => {
-    setMsg({ type: "", text: "" });
+    setMsg({
+      type: "",
+      text: "",
+    });
+
     setReloadKey((key) => key + 1);
   };
 
   const clearSearch = () => {
     setSearch("");
     setTab("All");
-    if (reviewer) setStatus("");
+
+    if (reviewer) {
+      setStatus("");
+    }
   };
 
   const heading = admin
@@ -454,6 +617,10 @@ export default function Leaves() {
     : manager
       ? "Monitor leave requests submitted by employees in your reporting hierarchy."
       : "Apply for leave, review your application history and track request status.";
+
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
 
   return (
     <div className="min-h-full space-y-6 pb-8">
@@ -600,6 +767,33 @@ export default function Leaves() {
             />
           </div>
 
+          {/* Earned leave policy */}
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600">
+                <Wallet size={20} />
+              </span>
+
+              <div>
+                <h3 className="font-bold text-indigo-900">
+                  Earned Leave Policy
+                </h3>
+
+                <p className="mt-1 text-sm leading-6 text-indigo-800">
+                  Employees receive 1 earned leave day per month.
+                  Unused earned leave carries forward without a
+                  balance cap. If approved leave exceeds the available
+                  earned leave balance, the remaining days are unpaid.
+                </p>
+
+                <p className="mt-2 text-xs text-indigo-700">
+                  Your live leave balance will be displayed here after
+                  the leave-balance API is connected.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Apply leave form */}
           <form
             onSubmit={apply}
@@ -623,7 +817,7 @@ export default function Leaves() {
               </div>
             </div>
 
-            <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+            <div className="grid gap-5 p-5 sm:grid-cols-2 lg:grid-cols-3 sm:p-6">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-slate-700">
                   Leave type{" "}
@@ -635,10 +829,7 @@ export default function Leaves() {
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
                   value={form.leaveType}
                   onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      leaveType: event.target.value,
-                    }))
+                    updateForm("leaveType", event.target.value)
                   }
                 >
                   {leaveTypes.map((type) => (
@@ -651,6 +842,25 @@ export default function Leaves() {
 
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Leave duration{" "}
+                  <span className="text-rose-500">*</span>
+                </label>
+
+                <select
+                  required
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                  value={form.dayType}
+                  onChange={(event) =>
+                    updateForm("dayType", event.target.value)
+                  }
+                >
+                  <option value="FullDay">Full Day</option>
+                  <option value="HalfDay">Half Day</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">
                   Start date{" "}
                   <span className="text-rose-500">*</span>
                 </label>
@@ -658,21 +868,11 @@ export default function Leaves() {
                 <input
                   type="date"
                   required
-                  min={new Date().toLocaleDateString("en-CA", {
-                    timeZone: "Asia/Kolkata",
-                  })}
+                  min={today}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
                   value={form.startDate}
                   onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      startDate: event.target.value,
-                      endDate:
-                        previous.endDate &&
-                        event.target.value > previous.endDate
-                          ? ""
-                          : previous.endDate,
-                    }))
+                    updateForm("startDate", event.target.value)
                   }
                 />
               </div>
@@ -686,33 +886,77 @@ export default function Leaves() {
                 <input
                   type="date"
                   required
-                  min={form.startDate || new Date().toLocaleDateString("en-CA", {
-                    timeZone: "Asia/Kolkata",
-                  })}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                  min={form.startDate || today}
+                  disabled={form.dayType === "HalfDay"}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 disabled:cursor-not-allowed disabled:bg-slate-100"
                   value={form.endDate}
                   onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      endDate: event.target.value,
-                    }))
+                    updateForm("endDate", event.target.value)
                   }
                 />
+
+                {form.dayType === "HalfDay" && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Half-day leave is for one date only.
+                  </p>
+                )}
               </div>
 
-              {form.startDate && form.endDate && (
-                <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 sm:col-span-2 lg:col-span-3">
-                  <div className="flex items-center gap-2 text-indigo-700">
-                    <CalendarDays size={17} />
+              {form.dayType === "HalfDay" && (
+                <div>
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Half-day session{" "}
+                    <span className="text-rose-500">*</span>
+                  </label>
 
-                    <span className="text-sm font-semibold">
-                      Leave duration:{" "}
-                      {calculateDays(
-                        form.startDate,
-                        form.endDate
-                      )}{" "}
-                      day(s)
-                    </span>
+                  <select
+                    required
+                    value={form.halfDaySession}
+                    onChange={(event) =>
+                      updateForm(
+                        "halfDaySession",
+                        event.target.value
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                  >
+                    <option value="">Select session</option>
+                    <option value="FirstHalf">First Half</option>
+                    <option value="SecondHalf">Second Half</option>
+                  </select>
+                </div>
+              )}
+
+              {form.startDate &&
+                form.endDate &&
+                form.dayType === "FullDay" && (
+                  <div className="flex items-center rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                    <div>
+                      <p className="text-xs font-semibold text-indigo-600">
+                        Calendar date range
+                      </p>
+
+                      <p className="mt-1 text-sm font-bold text-indigo-900">
+                        {calculateDays(
+                          form.startDate,
+                          form.endDate
+                        )}{" "}
+                        calendar day(s)
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+              {form.dayType === "HalfDay" && (
+                <div className="flex items-center rounded-xl border border-purple-100 bg-purple-50 p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-purple-700">
+                      Requested duration
+                    </p>
+
+                    <p className="mt-1 text-sm font-bold text-purple-900">
+                      0.5 day
+                    </p>
                   </div>
                 </div>
               )}
@@ -731,10 +975,7 @@ export default function Leaves() {
                   placeholder="Explain why you need leave..."
                   value={form.reason}
                   onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      reason: event.target.value,
-                    }))
+                    updateForm("reason", event.target.value)
                   }
                 />
 
@@ -745,7 +986,7 @@ export default function Leaves() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 sm:col-span-2 lg:col-span-3">
                 <p className="text-xs text-slate-400">
-                  Your application will be sent for review.
+                  Your application will be sent for HR review.
                 </p>
 
                 <button
@@ -780,7 +1021,9 @@ export default function Leaves() {
 
             <div>
               <h2 className="font-bold text-slate-900">
-                {reviewer ? "Manage leave requests" : "Leave history"}
+                {reviewer
+                  ? "Manage leave requests"
+                  : "Leave history"}
               </h2>
 
               <p className="text-xs text-slate-400">
@@ -880,9 +1123,7 @@ export default function Leaves() {
                     active ? "text-indigo-100" : "text-slate-400"
                   }`}
                 >
-                  {value === "All"
-                    ? rows.length
-                    : count(value)}
+                  {value === "All" ? rows.length : count(value)}
                 </span>
               </button>
             );
@@ -955,10 +1196,7 @@ export default function Leaves() {
             const employeeName = getEmployeeName(row);
             const department = getDepartment(row);
             const employeeId = getEmployeeId(row);
-            const leaveDays = calculateDays(
-              row.startDate,
-              row.endDate
-            );
+            const leaveDays = getRequestedDays(row);
 
             const expanded =
               expandedRows[row._id] ?? true;
@@ -995,6 +1233,12 @@ export default function Leaves() {
                         </h3>
 
                         <StatusBadge value={row.status || "Pending"} />
+
+                        {row.dayType === "HalfDay" && (
+                          <span className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                            Half Day
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
@@ -1065,7 +1309,7 @@ export default function Leaves() {
 
                   <div className="border-b border-slate-100 px-4 py-3 sm:border-b-0 sm:border-r">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      Duration
+                      Requested duration
                     </p>
                     <p className="mt-1 text-sm font-bold text-slate-800">
                       {leaveDays} day(s)
@@ -1124,19 +1368,25 @@ export default function Leaves() {
 
                       <DetailItem
                         label="Leave duration"
-                        value={`${leaveDays} calendar day(s)`}
+                        value={
+                          row.dayType === "HalfDay"
+                            ? `Half Day (${
+                                row.halfDaySession === "FirstHalf"
+                                  ? "First Half"
+                                  : row.halfDaySession === "SecondHalf"
+                                    ? "Second Half"
+                                    : "Session not specified"
+                              })`
+                            : `${leaveDays} day(s)`
+                        }
                         icon={CalendarClock}
                       />
 
-                      {row.reviewedBy && (
-                        <DetailItem
-                          label="Reviewed by"
-                          value={
-                            row.reviewedBy.name || "Reviewer"
-                          }
-                          icon={CheckCircle2}
-                        />
-                      )}
+                      <DetailItem
+                        label="Submitted on"
+                        value={formatDate(row.createdAt)}
+                        icon={CalendarDays}
+                      />
 
                       {row.reviewedAt && (
                         <DetailItem
@@ -1146,6 +1396,22 @@ export default function Leaves() {
                         />
                       )}
                     </div>
+
+                    {/* Paid / unpaid allocation */}
+                    <AllocationDetails row={row} />
+
+                    {row.status === "Approved" &&
+                      row.allocationStatus !== "Allocated" && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <p className="text-sm font-semibold text-amber-800">
+                            Allocation information unavailable
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-amber-700">
+                            This request is approved, but its paid and
+                            unpaid leave allocation has not been recorded.
+                          </p>
+                        </div>
+                      )}
 
                     {/* Decision note */}
                     {row.reviewNote && (
@@ -1166,11 +1432,20 @@ export default function Leaves() {
                       </div>
                     )}
 
-                    {!row.reviewNote && row.reviewedBy && (
-                      <p className="text-xs text-slate-400">
-                        No decision note was added.
-                      </p>
-                    )}
+                    {row.status === "Approved" &&
+                      row.allocationStatus === "Allocated" &&
+                      Number(row.unpaidDays || 0) > 0 && (
+                        <div className="rounded-xl border border-orange-100 bg-orange-50 p-3">
+                          <p className="text-sm font-semibold text-orange-800">
+                            Unpaid leave recorded
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-orange-700">
+                            The unpaid portion will be considered during
+                            payroll calculation. The actual deduction
+                            amount will be calculated by payroll.
+                          </p>
+                        </div>
+                      )}
                   </div>
                 )}
 
